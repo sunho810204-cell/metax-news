@@ -1,0 +1,34 @@
+name: 아침 뉴스 도착 감시
+# Claude 구독과 상관없이 매일 08:10(한국 시간)에 알림 서버를 확인한다.
+# 오늘 뉴스 알림이 없으면 프렌드 폰으로 "미도착" 한 줄을 보낸다. 알림 주제 이름은 Secret NTFY_TOPIC.
+on:
+  schedule:
+    - cron: '10 23 * * *'   # 23:10 UTC = 다음 날 08:10 KST
+  workflow_dispatch:
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 오늘 알림 확인
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then echo "Secret NTFY_TOPIC 이 없어요"; exit 1; fi
+          MD=$(TZ=Asia/Seoul date +%m/%d)
+          DOW=$(TZ=Asia/Seoul date +%u)   # 1=월 ... 7=일
+          curl -sS -m 30 "https://ntfy.sh/$NTFY_TOPIC/json?poll=1&since=3h" \
+            | jq -r 'select(.event=="message") | (.title // empty)' > titles.txt || true
+          missing=""
+          grep -qF "종합 뉴스 $MD" titles.txt || missing="종합 뉴스"
+          if [ "$DOW" -le 5 ]; then
+            grep -qF "마케팅신문 브리핑 $MD" titles.txt || missing="${missing:+$missing, }마케팅 브리핑"
+          fi
+          if [ -z "$missing" ]; then echo "정상: $MD 알림이 모두 도착했어요"; exit 0; fi
+          echo "빠진 알림: $missing"
+          printf '오늘(%s) %s 알림이 08:10까지 오지 않았어요.\nClaude 구독이나 예약 실행을 확인해 주세요.\nClaude 세션에서 "오늘 뉴스 보내줘"라고 말하면 바로 보내 드려요.\n' "$MD" "$missing" > body.txt
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -sS -m 40 -o /dev/null -w "%{http_code}" -H "Title: 아침 뉴스 미도착 (구독 확인)" --data-binary @body.txt "https://ntfy.sh/$NTFY_TOPIC")
+            [ "$code" = 200 ] && { echo "알림 발송 완료"; exit 0; }
+            echo "시도 $i: $code"; sleep 65
+          done
+          exit 1
