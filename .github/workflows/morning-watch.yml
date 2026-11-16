@@ -14,6 +14,12 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           if [ -z "$NTFY_TOPIC" ]; then echo "Secret NTFY_TOPIC 이 없어요"; exit 1; fi
+          # 붙여넣을 때 섞이기 쉬운 줄바꿈·공백·따옴표·"NTFY_TOPIC=" 글자를 걷어 낸다(값은 출력하지 않는다)
+          NTFY_TOPIC=$(printf '%s' "$NTFY_TOPIC" | tr -d ' \r\n\t"' | sed 's/^NTFY_TOPIC=//')
+          case "$NTFY_TOPIC" in
+            mx-*) ;;
+            *) echo "Secret 값이 mx- 로 시작하지 않아요. 다시 넣어 주세요."; exit 1;;
+          esac
           MD=$(TZ=Asia/Seoul date +%m/%d)
           DOW=$(TZ=Asia/Seoul date +%u)   # 1=월 ... 7=일
           curl -sS -m 30 "https://ntfy.sh/$NTFY_TOPIC/json?poll=1&since=3h" \
